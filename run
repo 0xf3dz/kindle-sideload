@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ ! -x "$ROOT/.tools/calibre-8.5.0/calibre.app/Contents/MacOS/ebook-convert" ]; then
+    echo "calibre 8.5 is not installed. Run ./setup first." >&2
+    exit 1
+fi
+exec python3 "$ROOT/app.py" "$@"
