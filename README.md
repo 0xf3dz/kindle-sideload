@@ -3,6 +3,11 @@
 Convert EPUB files to AZW3 on your Mac. The application keeps book files on your local network.
 The application pins calibre 8.5.0 and uses its default conversion settings.
 
+<p align="center">
+  <img src="assets/imports-2.webp" width="49%" alt="Converted book imports">
+  <img src="assets/imports-1.webp" width="49%" alt="Kindle download commands">
+</p>
+
 ## Requirements
 
 - macOS
