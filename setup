@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+VERSION="8.5.0"
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+TOOLS="$ROOT/.tools"
+APP="$TOOLS/calibre-$VERSION/calibre.app"
+BINARY="$APP/Contents/MacOS/ebook-convert"
+DMG="$TOOLS/calibre-$VERSION.dmg"
+URL="https://download.calibre-ebook.com/$VERSION/calibre-$VERSION.dmg"
+
+if [ -x "$BINARY" ] && "$BINARY" --version 2>/dev/null | grep -q "calibre $VERSION"; then
+    echo "calibre $VERSION is ready."
+    exit 0
+fi
+
+mkdir -p "$TOOLS"
+if [ ! -f "$DMG" ]; then
+    echo "Download calibre $VERSION from the official archive."
+    curl --fail --location --progress-bar "$URL" --output "$DMG"
+fi
+
+MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/calibre-mount.XXXXXX")
+cleanup() {
+    hdiutil detach "$MOUNT" -quiet 2>/dev/null || true
+    rmdir "$MOUNT" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" -quiet
+rm -rf "$TOOLS/calibre-$VERSION"
+mkdir -p "$TOOLS/calibre-$VERSION"
+ditto "$MOUNT/calibre.app" "$APP"
+hdiutil detach "$MOUNT" -quiet
+
+"$BINARY" --version
