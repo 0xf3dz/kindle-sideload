@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>EPUB to AZW3</title>
+  <style>
+    :root { color-scheme: dark; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #080808; color: #d8d8d8; }
+    main { width: min(760px, calc(100% - 32px)); margin: 48px auto; }
+    header { padding-bottom: 18px; border-bottom: 1px solid #303030; }
+    h1 { margin: 0 0 8px; color: #fff; font-size: 18px; font-weight: 500; }
+    p { margin: 12px 0; line-height: 1.5; }
+    .muted { color: #777; }
+    .view { padding-top: 18px; }
+    .command {
+      display: block;
+      width: fit-content;
+      margin: 9px 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #8be28b;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .command::before { content: "  "; white-space: pre; }
+    .command.selected::before { content: "> "; color: #fff; }
+    .command:hover, .command:focus { color: #fff; outline: none; }
+    .output { margin: 16px 0; padding: 14px; border-left: 2px solid #555; background: #111; }
+    .address { display: block; margin: 9px 0; color: #9ecbff; overflow-wrap: anywhere; }
+    .import { padding: 14px 0; border-bottom: 1px solid #252525; }
+    .import:first-child { padding-top: 0; }
+    .import-name { color: #fff; }
+    .inline { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
+    .inline .command { margin: 0; }
+    input, [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>epub-to-azw3</h1>
+    <div id="server" class="muted">connect...</div>
+  </header>
+
+  <section id="home" class="view">
+    <p>select command:</p>
+    <button id="importCommand" class="command" type="button">import .epub</button>
+    <button id="importsCommand" class="command" type="button">view imports</button>
+  </section>
+
+  <section id="importView" class="view" hidden>
+    <p>import .epub</p>
+    <button id="selectCommand" class="command" type="button">select file</button>
+    <p id="status" class="muted" role="status">select an EPUB file.</p>
+    <div id="result" class="output" hidden>
+      <div id="resultName"></div>
+      <code id="kindleUrl" class="address"></code>
+      <div class="inline">
+        <a id="download" class="command" download>download</a>
+        <button id="copy" class="command" type="button">copy address</button>
+      </div>
+    </div>
+    <button class="command back" type="button">back</button>
+  </section>
+
+  <section id="importsView" class="view" hidden>
+    <p>view imports</p>
+    <div id="imports" class="output">load...</div>
+    <button class="command back" type="button">back</button>
+  </section>
+
+  <input id="file" type="file" accept=".epub,application/epub+zip">
+</main>
+<script>
+  const views = {
+    home: document.querySelector('#home'),
+    import: document.querySelector('#importView'),
+    imports: document.querySelector('#importsView')
+  };
+  const picker = document.querySelector('#file');
+  const status = document.querySelector('#status');
+  const result = document.querySelector('#result');
+  const resultName = document.querySelector('#resultName');
+  const kindleUrl = document.querySelector('#kindleUrl');
+  const download = document.querySelector('#download');
+  const copy = document.querySelector('#copy');
+  const imports = document.querySelector('#imports');
+  let selectedIndex = 0;
+
+  fetch('/api/info')
+    .then(response => response.json())
+    .then(info => {
+      document.querySelector('#server').textContent = `kindle: ${info.kindle_origin}`;
+    })
+    .catch(() => {
+      document.querySelector('#server').textContent = 'server unavailable';
+    });
+
+  function show(name) {
+    for (const [viewName, element] of Object.entries(views)) {
+      element.hidden = viewName !== name;
+    }
+    selectedIndex = 0;
+    requestAnimationFrame(() => selectCommand(0));
+  }
+
+  function visibleCommands() {
+    return [...document.querySelectorAll('.view:not([hidden]) .command')]
+      .filter(command => command.offsetParent !== null);
+  }
+
+  function selectCommand(index) {
+    const commands = visibleCommands();
+    document.querySelectorAll('.command.selected').forEach(command => command.classList.remove('selected'));
+    if (!commands.length) return;
+    selectedIndex = (index + commands.length) % commands.length;
+    commands[selectedIndex].classList.add('selected');
+  }
+
+  function selectFile() {
+    show('import');
+    picker.click();
+  }
+
+  document.querySelector('#importCommand').addEventListener('click', selectFile);
+  document.querySelector('#selectCommand').addEventListener('click', selectFile);
+  document.querySelector('#importsCommand').addEventListener('click', viewImports);
+  document.querySelectorAll('.back').forEach(button => {
+    button.addEventListener('click', () => show('home'));
+  });
+  picker.addEventListener('change', () => convert(picker.files[0]));
+
+  document.addEventListener('keydown', event => {
+    const commands = visibleCommands();
+    if (!commands.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      selectCommand(selectedIndex + 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      selectCommand(selectedIndex - 1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      commands[selectedIndex].click();
+    }
+  });
+
+  document.addEventListener('pointerover', event => {
+    const command = event.target.closest?.('.command');
+    if (!command || command.offsetParent === null) return;
+    selectCommand(visibleCommands().indexOf(command));
+  });
+
+  async function convert(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.epub')) {
+      status.textContent = 'error: select an EPUB file.';
+      return;
+    }
+
+    result.hidden = true;
+    status.textContent = `convert: ${file.name}`;
+    try {
+      const response = await fetch(`/api/convert?filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/epub+zip' },
+        body: file
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'conversion failed.');
+
+      resultName.textContent = `ok: ${data.name} (${formatBytes(data.size)})`;
+      kindleUrl.textContent = data.kindle_url;
+      download.href = data.download_url;
+      download.download = data.name;
+      copy.onclick = () => copyAddress(data.kindle_url, copy);
+      result.hidden = false;
+      selectCommand(1);
+      status.textContent = 'conversion complete.';
+    } catch (error) {
+      status.textContent = `error: ${error.message}`;
+    } finally {
+      picker.value = '';
+    }
+  }
+
+  async function viewImports() {
+    show('imports');
+    imports.textContent = 'load...';
+    try {
+      const response = await fetch('/api/imports');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'request failed.');
+      renderImports(data.imports);
+    } catch (error) {
+      imports.textContent = `error: ${error.message}`;
+    }
+  }
+
+  function renderImports(items) {
+    imports.replaceChildren();
+    if (!items.length) {
+      imports.textContent = 'no imports.';
+      return;
+    }
+
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'import';
+
+      const name = document.createElement('div');
+      name.className = 'import-name';
+      name.textContent = `${item.name} (${formatBytes(item.size)})`;
+
+      const address = document.createElement('code');
+      address.className = 'address';
+      address.textContent = item.kindle_url;
+
+      const actions = document.createElement('div');
+      actions.className = 'inline';
+
+      const open = document.createElement('a');
+      open.className = 'command';
+      open.href = item.download_url;
+      open.download = item.name;
+      open.textContent = 'download';
+
+      const copyButton = document.createElement('button');
+      copyButton.className = 'command';
+      copyButton.type = 'button';
+      copyButton.textContent = 'copy address';
+      copyButton.addEventListener('click', () => copyAddress(item.kindle_url, copyButton));
+
+      actions.append(open, copyButton);
+      row.append(name, address, actions);
+      imports.append(row);
+    }
+    selectCommand(0);
+  }
+
+  async function copyAddress(address, button) {
+    await navigator.clipboard.writeText(address);
+    const label = button.textContent;
+    button.textContent = 'copied.';
+    setTimeout(() => { button.textContent = label; }, 1200);
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  selectCommand(0);
+</script>
+</body>
+</html>
